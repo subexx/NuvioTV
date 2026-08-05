@@ -579,20 +579,31 @@ class StreamScreenViewModel @Inject constructor(
             val baseline = resumeBaseline
                 ?: sessionCached?.groups?.takeIf { it.isNotEmpty() }
 
-            // Complete session cache hit — show immediately and skip network.
+            // Session cache hit — reuse without another addon query.
+            // Play/autoplay treats any non-empty cached list as ready so playback
+            // starts instantly from what detail already loaded. Manual Sources
+            // only skips network when the cache fetch fully completed.
             if (resumeBaseline == null &&
-                sessionCached?.isComplete == true &&
+                sessionCached != null &&
                 sessionCached.groups.isNotEmpty()
             ) {
-                Log.d(TAG, "Using session-cached streams for $streamCacheKey (${sessionCached.groups.sumOf { it.streams.size }} streams)")
-                applySuccess(sessionCached.groups, isAllLoaded = true)
+                val skipNetwork = sessionCached.isComplete || !manualSelection
+                Log.d(
+                    TAG,
+                    "Using session-cached streams for $streamCacheKey " +
+                        "(${sessionCached.groups.sumOf { it.streams.size }} streams, " +
+                        "complete=${sessionCached.isComplete}, skipNetwork=$skipNetwork)"
+                )
+                applySuccess(sessionCached.groups, isAllLoaded = skipNetwork)
                 updateSourceChipsForFetchStart(installedAddons, directDebridSourceNames, sessionCached.groups)
-                streamLoadCompleted = true
-                return@launch
+                if (skipNetwork) {
+                    streamLoadCompleted = true
+                    return@launch
+                }
             }
 
-            // If resuming / seeding from cache, show results immediately.
-            if (baseline != null) {
+            // If resuming / seeding from incomplete cache, show results immediately.
+            if (baseline != null && (sessionCached == null || sessionCached.groups.isEmpty() || resumeBaseline != null)) {
                 applySuccess(baseline, isAllLoaded = false)
             }
 

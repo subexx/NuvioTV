@@ -145,6 +145,127 @@ internal fun PlayerRuntimeController.showSourcesPanel() {
     loadSourceStreams(forceRefresh = false)
 }
 
+/**
+ * Populate [PlayerUiState.sourceAllStreams] from the session cache without a
+ * network round-trip. Used at player start so next-link failover and the OSD
+ * can reuse streams already fetched on the detail / stream screens.
+ */
+internal fun PlayerRuntimeController.hydrateSourceStreamsFromSessionCache() {
+    val type = contentType ?: return
+    val vid = currentVideoId ?: contentId ?: return
+    val sessionCached = sessionAddonStreamsCache.get(type, vid) ?: return
+    if (sessionCached.groups.isEmpty()) return
+
+    val allStreams = sessionCached.groups.flatMap { it.streams }
+    if (allStreams.isEmpty()) return
+    val availableAddons = sessionCached.groups.map { it.addonName }
+    val requestKey = buildSourceRequestKey(
+        type = type,
+        videoId = vid,
+        season = currentSeason,
+        episode = currentEpisode
+    )
+    sourceStreamsCacheRequestKey = requestKey
+    sourceStreamsFetchCompleted = sessionCached.isComplete
+    _uiState.update {
+        it.copy(
+            isLoadingSourceStreams = false,
+            sourceStreamsError = null,
+            sourceAllStreams = allStreams,
+            sourceSelectedAddonFilter = null,
+            sourceFilteredStreams = allStreams,
+            sourceAvailableAddons = availableAddons,
+            sourceChips = availableAddons.map { name ->
+                SourceChipItem(name = name, status = SourceChipStatus.SUCCESS)
+            }
+        )
+    }
+    Log.d(
+        PlayerRuntimeController.TAG,
+        "Hydrated ${allStreams.size} source streams from session cache for $type|$vid"
+    )
+}
+
+private const val MAX_STREAM_FAILOVER_ATTEMPTS = 25
+
+/**
+ * On fatal playback failure, switch to the next playable stream from the
+ * session-cached / OSD list. Returns true when a switch was started (caller
+ * should not show the fatal error UI yet).
+ */
+internal fun PlayerRuntimeController.tryNextStreamAfterPlaybackFailure(
+    detailedError: String
+): Boolean {
+    if (streamFailoverInProgress) return true
+
+    hydrateSourceStreamsFromSessionCache()
+    val candidates = _uiState.value.sourceAllStreams
+    if (candidates.isEmpty()) {
+        Log.d(PlayerRuntimeController.TAG, "Stream failover: no candidate list available")
+        return false
+    }
+
+    // Mark the failing stream so we don't pick it again.
+    val failingKey = candidates.firstOrNull { stream ->
+        val url = stream.getStreamUrl()
+        url != null && (url == currentStreamUrl || stream.url == currentStreamUrl)
+    }?.stableKey()
+        ?: currentStreamUrl.takeIf { it.isNotBlank() }
+    if (failingKey != null) {
+        failedStreamFailoverKeys += failingKey
+    }
+
+    if (streamFailoverAttempts >= MAX_STREAM_FAILOVER_ATTEMPTS) {
+        Log.w(PlayerRuntimeController.TAG, "Stream failover: attempt limit reached")
+        return false
+    }
+
+    val next = StreamAutoPlaySelector.selectNextPlayableStream(
+        streams = candidates,
+        currentUrl = currentStreamUrl,
+        excludeKeys = failedStreamFailoverKeys
+    )
+    if (next == null) {
+        Log.w(
+            PlayerRuntimeController.TAG,
+            "Stream failover: no remaining playable streams after error=$detailedError"
+        )
+        return false
+    }
+
+    streamFailoverAttempts++
+    streamFailoverInProgress = true
+    Log.w(
+        PlayerRuntimeController.TAG,
+        "Stream failover ${streamFailoverAttempts}: trying next source " +
+            "'${next.getDisplayNameOrNull() ?: next.addonName}' after error=$detailedError"
+    )
+
+    _uiState.update {
+        it.copy(
+            error = null,
+            showLoadingOverlay = true,
+            isBuffering = true,
+            loadingMessage = context.getString(com.nuvio.tv.R.string.player_trying_next_source),
+            showPauseOverlay = false,
+            playbackEnded = false,
+            postPlayMode = null
+        )
+    }
+
+    // switchToSourceStream releases/rebuilds the player asynchronously.
+    switchToSourceStream(next)
+    streamFailoverInProgress = false
+    return true
+}
+
+internal fun PlayerRuntimeController.resetStreamFailoverStateOnSuccess() {
+    if (failedStreamFailoverKeys.isEmpty() && streamFailoverAttempts == 0) return
+    failedStreamFailoverKeys.clear()
+    streamFailoverAttempts = 0
+    streamFailoverInProgress = false
+}
+
 internal fun PlayerRuntimeController.buildSourceRequestKey(type: String, videoId: String, season: Int?, episode: Int?): String {
     return "$type|$videoId|${season ?: -1}|${episode ?: -1}"
 }

@@ -61,6 +61,9 @@ internal fun PlayerRuntimeController.attachMpvView(view: NuvioMpvSurfaceView?) {
         ) {
             return@onFailure
         }
+        if (tryNextStreamAfterPlaybackFailure(detailedError)) {
+            return@onFailure
+        }
         cancelNextEpisodeAutoPlayOnFatalError()
         _uiState.update { state ->
             state.copy(
@@ -166,6 +169,9 @@ internal fun PlayerRuntimeController.initializeMpvPlayer(
                 allowEngineFailover = allowEngineFailover
             )
         ) {
+            return@onFailure
+        }
+        if (tryNextStreamAfterPlaybackFailure(detailedError)) {
             return@onFailure
         }
         cancelNextEpisodeAutoPlayOnFatalError()

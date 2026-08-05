@@ -43,7 +43,49 @@ object StreamAutoPlaySelector {
         return stream.getStreamUrl() != null || stream.isTorrent() || stream.isDirectDebrid()
     }
 
+    fun isPlayableStream(stream: Stream): Boolean = isPlayable(stream)
 
+    /**
+     * Returns the next playable stream after [current], skipping [excludeKeys].
+     * Matching uses URL / infoHash / stableKey so nav-launched playback can
+     * locate itself in a session-cached list.
+     */
+    fun selectNextPlayableStream(
+        streams: List<Stream>,
+        current: Stream? = null,
+        currentUrl: String? = null,
+        excludeKeys: Set<String> = emptySet()
+    ): Stream? {
+        if (streams.isEmpty()) return null
+        fun keyOf(stream: Stream): String = stream.stableKey()
+        fun matchesCurrent(stream: Stream): Boolean {
+            if (current != null && keyOf(stream) == keyOf(current)) return true
+            val url = currentUrl?.takeIf { it.isNotBlank() } ?: return false
+            return stream.getStreamUrl() == url ||
+                stream.url == url ||
+                stream.externalUrl == url
+        }
+
+        val startIndex = streams.indexOfFirst { matchesCurrent(it) }.let { index ->
+            if (index >= 0) index + 1 else 0
+        }
+        for (i in startIndex until streams.size) {
+            val candidate = streams[i]
+            if (!isPlayable(candidate)) continue
+            if (keyOf(candidate) in excludeKeys) continue
+            if (matchesCurrent(candidate)) continue
+            return candidate
+        }
+        // Wrap: try earlier streams that weren't the failing one.
+        for (i in 0 until startIndex.coerceAtMost(streams.size)) {
+            val candidate = streams[i]
+            if (!isPlayable(candidate)) continue
+            if (keyOf(candidate) in excludeKeys) continue
+            if (matchesCurrent(candidate)) continue
+            return candidate
+        }
+        return null
+    }
 
     fun selectAutoPlayStream(
         streams: List<Stream>,

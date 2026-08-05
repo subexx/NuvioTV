@@ -1282,6 +1282,9 @@ internal fun PlayerRuntimeController.initializePlayer(
                     override fun onRenderedFirstFrame() {
                         val isFirstFrame = !hasRenderedFirstFrame  // capture BEFORE flipping
                         hasRenderedFirstFrame = true
+                        if (isFirstFrame) {
+                            resetStreamFailoverStateOnSuccess()
+                        }
                         mediaSourceFactory.unlockStartupPrefetch()
                         if (isFirstFrame && _uiState.value.postPlayDismissedForCurrentEpisode) {
                             _uiState.update { it.copy(postPlayDismissedForCurrentEpisode = false) }
@@ -1504,6 +1507,10 @@ internal fun PlayerRuntimeController.initializePlayer(
                             return
                         }
                         if (attemptAutoRetry(error, detailedError)) {
+                            return
+                        }
+
+                        if (tryNextStreamAfterPlaybackFailure(detailedError)) {
                             return
                         }
 

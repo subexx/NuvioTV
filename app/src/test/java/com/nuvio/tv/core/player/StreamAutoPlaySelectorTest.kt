@@ -268,6 +268,35 @@ class StreamAutoPlaySelectorTest {
         assertEquals(listOf(regular, cachedDebrid), ordered)
     }
 
+    @Test
+    fun `selectNextPlayableStream skips current and failed streams`() {
+        val first = stream(addonName = "A", url = "https://example.com/1.m3u8", name = "1")
+        val second = stream(addonName = "A", url = "https://example.com/2.m3u8", name = "2")
+        val third = stream(addonName = "B", url = "https://example.com/3.m3u8", name = "3")
+
+        val next = StreamAutoPlaySelector.selectNextPlayableStream(
+            streams = listOf(first, second, third),
+            currentUrl = first.url,
+            excludeKeys = setOf(first.stableKey())
+        )
+
+        assertEquals(second, next)
+    }
+
+    @Test
+    fun `selectNextPlayableStream returns null when all remaining are excluded`() {
+        val first = stream(addonName = "A", url = "https://example.com/1.m3u8", name = "1")
+        val second = stream(addonName = "A", url = "https://example.com/2.m3u8", name = "2")
+
+        val next = StreamAutoPlaySelector.selectNextPlayableStream(
+            streams = listOf(first, second),
+            currentUrl = first.url,
+            excludeKeys = setOf(first.stableKey(), second.stableKey())
+        )
+
+        assertNull(next)
+    }
+
     private fun stream(
         addonName: String,
         url: String? = null,

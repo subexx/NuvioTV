@@ -27,6 +27,10 @@ internal fun PlayerRuntimeController.startInitialPlaybackIfNeeded() {
         }
     }
 
+    // Seed the sources list from the session cache so failover / OSD can use
+    // streams already fetched on the detail / stream screen without re-querying.
+    hydrateSourceStreamsFromSessionCache()
+
     val infoHash = navigationArgs.infoHash
     val clickElapsedMs = launchStartedAtElapsedMs
         ?.let { (SystemClock.elapsedRealtime() - it).coerceAtLeast(0L) }
@@ -63,6 +67,13 @@ internal fun PlayerRuntimeController.startInitialPlaybackIfNeeded() {
                 throw e
             } catch (e: Exception) {
                 Log.e("PlayerStartup", "Failed to start torrent", e)
+                if (tryNextStreamAfterPlaybackFailure(
+                        detailedError = e.message
+                            ?: context.getString(R.string.player_error_failed_start_torrent, context.getString(R.string.error_unknown))
+                    )
+                ) {
+                    return@launch
+                }
                 _uiState.update {
                     it.copy(
                         error = context.getString(
