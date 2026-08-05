@@ -168,10 +168,11 @@ internal fun PlayerRuntimeController.loadSourceStreams(forceRefresh: Boolean) {
     }
 
     val requestKey = buildSourceRequestKey(type = type, videoId = vid, season = seasonArg, episode = episodeArg)
+    val sessionKey = sessionAddonStreamsCache.key(type, vid)
     val state = _uiState.value
     val hasCachedPayload = state.sourceAllStreams.isNotEmpty() || state.sourceStreamsError != null
 
-    // Fully completed cache hit — nothing to do
+    // Fully completed in-player cache hit — nothing to do
     if (!forceRefresh && requestKey == sourceStreamsCacheRequestKey && hasCachedPayload && sourceStreamsFetchCompleted) {
         return
     }
@@ -182,6 +183,48 @@ internal fun PlayerRuntimeController.loadSourceStreams(forceRefresh: Boolean) {
 
     val targetChanged = requestKey != sourceStreamsCacheRequestKey
     val isResume = !forceRefresh && !targetChanged && requestKey == sourceStreamsCacheRequestKey && hasCachedPayload && !sourceStreamsFetchCompleted
+
+    // Session cache from detail/StreamScreen — show instantly when opening the OSD.
+    val sessionCached = if (!forceRefresh) sessionAddonStreamsCache.get(sessionKey) else null
+    if (!forceRefresh &&
+        !isResume &&
+        (targetChanged || !hasCachedPayload) &&
+        sessionCached != null &&
+        sessionCached.groups.isNotEmpty()
+    ) {
+        val ordered = sessionCached.groups
+        val allStreams = ordered.flatMap { it.streams }
+        val availableAddons = ordered.map { it.addonName }
+        sourceStreamsCacheRequestKey = requestKey
+        sourceStreamsFetchCompleted = sessionCached.isComplete
+        _uiState.update {
+            it.copy(
+                isLoadingSourceStreams = !sessionCached.isComplete,
+                sourceStreamsError = null,
+                sourceAllStreams = allStreams,
+                sourceSelectedAddonFilter = null,
+                sourceFilteredStreams = allStreams,
+                sourceAvailableAddons = availableAddons,
+                sourceChips = availableAddons.map { name ->
+                    SourceChipItem(
+                        name = name,
+                        status = SourceChipStatus.SUCCESS
+                    )
+                }
+            )
+        }
+        scheduleSourceBadgeApplication()
+        if (sessionCached.isComplete) {
+            return
+        }
+        // Incomplete session cache — fall through to network merge as resume.
+    }
+
+    val resumeFromSession = !forceRefresh &&
+        !sourceStreamsFetchCompleted &&
+        requestKey == sourceStreamsCacheRequestKey &&
+        _uiState.value.sourceAllStreams.isNotEmpty()
+
     sourceStreamsScope?.cancel()
     sourceStreamsJob = null
     val newScope = kotlinx.coroutines.CoroutineScope(scope.coroutineContext + kotlinx.coroutines.SupervisorJob())
@@ -190,16 +233,17 @@ internal fun PlayerRuntimeController.loadSourceStreams(forceRefresh: Boolean) {
     sourceStreamsJob = newScope.launch {
         sourceStreamsCacheRequestKey = requestKey
         sourceStreamsFetchCompleted = false
-        if (forceRefresh || targetChanged) sourceBadgedAddonNames = emptySet()
+        if (forceRefresh || targetChanged && !resumeFromSession) sourceBadgedAddonNames = emptySet()
+        val keepExisting = isResume || resumeFromSession
         _uiState.update {
             it.copy(
                 isLoadingSourceStreams = true,
                 sourceStreamsError = null,
-                sourceAllStreams = if (forceRefresh || targetChanged) emptyList() else it.sourceAllStreams,
-                sourceSelectedAddonFilter = if (forceRefresh || targetChanged) null else it.sourceSelectedAddonFilter,
-                sourceFilteredStreams = if (forceRefresh || targetChanged) emptyList() else it.sourceFilteredStreams,
-                sourceAvailableAddons = if (forceRefresh || targetChanged) emptyList() else it.sourceAvailableAddons,
-                sourceChips = if (forceRefresh || targetChanged) emptyList() else it.sourceChips
+                sourceAllStreams = if (forceRefresh || (targetChanged && !resumeFromSession)) emptyList() else it.sourceAllStreams,
+                sourceSelectedAddonFilter = if (forceRefresh || (targetChanged && !resumeFromSession)) null else it.sourceSelectedAddonFilter,
+                sourceFilteredStreams = if (forceRefresh || (targetChanged && !resumeFromSession)) emptyList() else it.sourceFilteredStreams,
+                sourceAvailableAddons = if (forceRefresh || (targetChanged && !resumeFromSession)) emptyList() else it.sourceAvailableAddons,
+                sourceChips = if (forceRefresh || (targetChanged && !resumeFromSession)) emptyList() else it.sourceChips
             )
         }
 
@@ -209,7 +253,7 @@ internal fun PlayerRuntimeController.loadSourceStreams(forceRefresh: Boolean) {
         var debridPreparationLaunched = false
 
         // On resume, skip chip reset — keep existing chip statuses
-        if (!isResume) {
+        if (!keepExisting) {
             updateSourceChipsForFetchStart(type, vid, installedAddons)
         }
 
@@ -224,9 +268,10 @@ internal fun PlayerRuntimeController.loadSourceStreams(forceRefresh: Boolean) {
                     val addonStreams = StreamAutoPlaySelector.orderAddonStreams(result.data, installedAddonOrder)
                     val allStreams = addonStreams.flatMap { it.streams }
                     val availableAddons = addonStreams.map { it.addonName }
+                    sessionAddonStreamsCache.put(sessionKey, addonStreams, isComplete = false)
                     _uiState.update {
                         // On resume, merge fresh results with any previously cached streams
-                        val mergedAllStreams = if (isResume && it.sourceAllStreams.isNotEmpty()) {
+                        val mergedAllStreams = if (keepExisting && it.sourceAllStreams.isNotEmpty()) {
                             mergeSourceStreams(it.sourceAllStreams, allStreams)
                         } else {
                             allStreams
@@ -243,7 +288,7 @@ internal fun PlayerRuntimeController.loadSourceStreams(forceRefresh: Boolean) {
                                 if (existing != null && s.badges.isEmpty()) s.copy(badges = existing.badges) else s
                             }
                         }
-                        val mergedAvailableAddons = if (isResume && it.sourceAvailableAddons.isNotEmpty()) {
+                        val mergedAvailableAddons = if (keepExisting && it.sourceAvailableAddons.isNotEmpty()) {
                             (it.sourceAvailableAddons + availableAddons).distinct()
                         } else {
                             availableAddons
@@ -294,6 +339,21 @@ internal fun PlayerRuntimeController.loadSourceStreams(forceRefresh: Boolean) {
             }
         }
         sourceStreamsFetchCompleted = true
+        sessionAddonStreamsCache.markComplete(sessionKey)
+        // Persist final ordered groups into session cache from current UI state.
+        val finalStreams = _uiState.value.sourceAllStreams
+        if (finalStreams.isNotEmpty()) {
+            val groups = finalStreams
+                .groupBy { it.addonName }
+                .map { (name, streams) ->
+                    com.nuvio.tv.domain.model.AddonStreams(
+                        addonName = name,
+                        addonLogo = streams.firstOrNull()?.addonLogo,
+                        streams = streams
+                    )
+                }
+            sessionAddonStreamsCache.put(sessionKey, groups, isComplete = true)
+        }
         markRemainingSourceChipsAsError()
     }
 }
@@ -974,6 +1034,7 @@ internal fun PlayerRuntimeController.loadStreamsForEpisode(video: Video, forceRe
     }
 
     val requestKey = buildEpisodeRequestKey(type = type, video = video)
+    val sessionKey = sessionAddonStreamsCache.key(type, video.id)
     val state = _uiState.value
     val hasCachedPayload = state.episodeAllStreams.isNotEmpty() || state.episodeStreamsError != null
     if (!forceRefresh && requestKey == episodeStreamsCacheRequestKey && hasCachedPayload) {
@@ -990,7 +1051,40 @@ internal fun PlayerRuntimeController.loadStreamsForEpisode(video: Video, forceRe
         return
     }
 
+    // Seed from session cache (detail/StreamScreen prefetch) for instant display.
+    val sessionCached = if (!forceRefresh) sessionAddonStreamsCache.get(sessionKey) else null
+    if (!forceRefresh &&
+        requestKey != episodeStreamsCacheRequestKey &&
+        sessionCached != null &&
+        sessionCached.groups.isNotEmpty()
+    ) {
+        val allStreams = sessionCached.groups.flatMap { it.streams }
+        val availableAddons = sessionCached.groups.map { it.addonName }
+        episodeStreamsCacheRequestKey = requestKey
+        _uiState.update {
+            it.copy(
+                showEpisodeStreams = true,
+                isLoadingEpisodeStreams = !sessionCached.isComplete,
+                episodeStreamsError = null,
+                episodeAllStreams = allStreams,
+                episodeSelectedAddonFilter = null,
+                episodeFilteredStreams = allStreams,
+                episodeAvailableAddons = availableAddons,
+                episodeStreamsForVideoId = video.id,
+                episodeStreamsSeason = video.season,
+                episodeStreamsEpisode = video.episode,
+                episodeStreamsTitle = video.title
+            )
+        }
+        scheduleEpisodeBadgeApplication()
+        if (sessionCached.isComplete) return
+    }
+
     val targetChanged = requestKey != episodeStreamsCacheRequestKey
+    val keepExisting = !forceRefresh && (
+        (!targetChanged && _uiState.value.episodeAllStreams.isNotEmpty()) ||
+            (sessionCached != null && sessionCached.groups.isNotEmpty() && requestKey == episodeStreamsCacheRequestKey)
+    )
     episodeStreamsScope?.cancel()
     episodeStreamsScope = null
     episodeStreamsJob = null
@@ -1004,10 +1098,10 @@ internal fun PlayerRuntimeController.loadStreamsForEpisode(video: Video, forceRe
                 showEpisodeStreams = true,
                 isLoadingEpisodeStreams = true,
                 episodeStreamsError = null,
-                episodeAllStreams = if (forceRefresh || targetChanged) emptyList() else it.episodeAllStreams,
-                episodeSelectedAddonFilter = if (forceRefresh || targetChanged) null else it.episodeSelectedAddonFilter,
-                episodeFilteredStreams = if (forceRefresh || targetChanged) emptyList() else it.episodeFilteredStreams,
-                episodeAvailableAddons = if (forceRefresh || targetChanged) emptyList() else it.episodeAvailableAddons,
+                episodeAllStreams = if (forceRefresh || (targetChanged && !keepExisting)) emptyList() else it.episodeAllStreams,
+                episodeSelectedAddonFilter = if (forceRefresh || (targetChanged && !keepExisting)) null else it.episodeSelectedAddonFilter,
+                episodeFilteredStreams = if (forceRefresh || (targetChanged && !keepExisting)) emptyList() else it.episodeFilteredStreams,
+                episodeAvailableAddons = if (forceRefresh || (targetChanged && !keepExisting)) emptyList() else it.episodeAvailableAddons,
                 episodeStreamsForVideoId = video.id,
                 episodeStreamsSeason = video.season,
                 episodeStreamsEpisode = video.episode,
@@ -1031,6 +1125,7 @@ internal fun PlayerRuntimeController.loadStreamsForEpisode(video: Video, forceRe
                     val addonStreams = StreamAutoPlaySelector.orderAddonStreams(result.data, installedAddonOrder)
                     val allStreams = addonStreams.flatMap { it.streams }
                     val availableAddons = addonStreams.map { it.addonName }
+                    sessionAddonStreamsCache.put(sessionKey, addonStreams, isComplete = false)
                     val selectedAddon = previousAddonFilter?.takeIf { it in availableAddons }
                     val filteredStreams = if (selectedAddon == null) {
                         allStreams
@@ -1070,6 +1165,20 @@ internal fun PlayerRuntimeController.loadStreamsForEpisode(video: Video, forceRe
                     _uiState.update { it.copy(isLoadingEpisodeStreams = true) }
                 }
             }
+        }
+        sessionAddonStreamsCache.markComplete(sessionKey)
+        val finalStreams = _uiState.value.episodeAllStreams
+        if (finalStreams.isNotEmpty()) {
+            val groups = finalStreams
+                .groupBy { it.addonName }
+                .map { (name, streams) ->
+                    com.nuvio.tv.domain.model.AddonStreams(
+                        addonName = name,
+                        addonLogo = streams.firstOrNull()?.addonLogo,
+                        streams = streams
+                    )
+                }
+            sessionAddonStreamsCache.put(sessionKey, groups, isComplete = true)
         }
     }
 }

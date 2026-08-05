@@ -238,8 +238,7 @@ fun HeroContentSection(
                 exit = fadeOut(tween(NuvioMotion.tokens.durations.overlay))
             ) {
                 Column {
-                    val showStreamsButton = onStreamsClick != null &&
-                        (meta.apiType.equals("movie", ignoreCase = true) || meta.type == ContentType.MOVIE)
+                    val showStreamsButton = onStreamsClick != null
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md),
                         verticalAlignment = Alignment.CenterVertically

@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.core.player.StreamAutoPlayPolicy
 import com.nuvio.tv.core.player.StreamAutoPlaySelector
+import com.nuvio.tv.core.streams.SessionAddonStreamsCache
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.core.tmdb.TmdbMetadataService
 import com.nuvio.tv.core.tmdb.TmdbService
@@ -81,6 +82,7 @@ class MetaDetailsViewModel @Inject constructor(
     private val metaRepository: MetaRepository,
     private val streamRepository: StreamRepository,
     private val addonRepository: AddonRepository,
+    private val sessionAddonStreamsCache: SessionAddonStreamsCache,
     private val tmdbSettingsDataStore: TmdbSettingsDataStore,
     private val tmdbService: TmdbService,
     private val tmdbMetadataService: TmdbMetadataService,
@@ -272,8 +274,13 @@ class MetaDetailsViewModel @Inject constructor(
     }
 
     private fun updateNextToWatch(nextToWatch: NextToWatch) {
+        var shouldPrefetch = false
         _uiState.update { state ->
             if (state.nextToWatch == nextToWatch) return@update state
+            val previousVideoId = state.nextToWatch?.nextVideoId
+            if (previousVideoId != nextToWatch.nextVideoId) {
+                shouldPrefetch = true
+            }
             val nextSeason = nextToWatch.nextSeason
             val meta = state.meta
             val shouldSwitchSeason = !suppressSeasonAutoSwitch &&
@@ -290,6 +297,9 @@ class MetaDetailsViewModel @Inject constructor(
             } else {
                 state.copy(nextToWatch = nextToWatch)
             }
+        }
+        if (shouldPrefetch) {
+            _uiState.value.meta?.let { prefetchStreams(it) }
         }
     }
 
@@ -847,19 +857,49 @@ class MetaDetailsViewModel @Inject constructor(
         // Start fetching trailer after meta is loaded
         fetchTrailerUrl()
 
-        // Prefetch streams in the background for movies (live count on Streams button)
-        prefetchStreamsForMovie(meta)
+        // Prefetch streams in the background (live count on Streams button + session cache)
+        prefetchStreams(meta)
 
         if (traktCommentsEnabled && traktAuthenticated && supportsComments(meta)) {
             loadComments(meta)
         }
     }
 
-    private fun prefetchStreamsForMovie(meta: Meta) {
+    private fun resolvePrefetchTarget(meta: Meta): Triple<String, Int?, Int?>? {
+        val isSeries = meta.apiType.equals("series", ignoreCase = true) ||
+            meta.apiType.equals("tv", ignoreCase = true) ||
+            meta.type == ContentType.SERIES ||
+            meta.type == ContentType.TV
+        if (!isSeries) {
+            return meta.id.takeIf { it.isNotBlank() }?.let { Triple(it, null, null) }
+        }
+
+        val nextToWatch = _uiState.value.nextToWatch
+        val byId = nextToWatch?.nextVideoId?.let { id ->
+            meta.videos.firstOrNull { it.id == id && it.available != false }
+        }
+        val bySeasonEpisode = if (byId == null && nextToWatch?.nextSeason != null && nextToWatch.nextEpisode != null) {
+            meta.videos.firstOrNull {
+                it.season == nextToWatch.nextSeason &&
+                    it.episode == nextToWatch.nextEpisode &&
+                    it.available != false
+            }
+        } else {
+            null
+        }
+        val defaultEpisode = findPreferredDefaultEpisode(meta)
+        val target = byId ?: bySeasonEpisode ?: defaultEpisode
+            ?: meta.videos.firstOrNull { it.available != false && (it.season ?: 0) > 0 }
+            ?: meta.videos.firstOrNull { it.available != false }
+        return target?.id?.takeIf { it.isNotBlank() }?.let {
+            Triple(it, target.season, target.episode)
+        }
+    }
+
+    private fun prefetchStreams(meta: Meta) {
         streamsPrefetchJob?.cancel()
-        val isMovie = meta.apiType.equals("movie", ignoreCase = true) ||
-            meta.type == ContentType.MOVIE
-        if (!isMovie || meta.id.isBlank()) {
+        val target = resolvePrefetchTarget(meta)
+        if (target == null) {
             _uiState.update {
                 it.copy(
                     isStreamsLoading = false,
@@ -871,24 +911,52 @@ class MetaDetailsViewModel @Inject constructor(
             return
         }
 
-        streamsPrefetchJob = viewModelScope.launch {
+        val (videoId, season, episode) = target
+        val streamType = meta.apiType.ifBlank {
+            when (meta.type) {
+                ContentType.SERIES, ContentType.TV -> "series"
+                else -> "movie"
+            }
+        }
+        val cacheKey = sessionAddonStreamsCache.key(streamType, videoId)
+
+        // Seed UI immediately from any session cache hit.
+        val cached = sessionAddonStreamsCache.get(cacheKey)
+        if (cached != null && cached.groups.isNotEmpty()) {
+            val allStreams = cached.groups.flatMap { it.streams }
+            val firstSummary = allStreams.firstOrNull()?.let { StreamAvSummaryBuilder.from(it) }
             _uiState.update {
                 it.copy(
-                    isStreamsLoading = true,
-                    streamCount = 0,
-                    firstStreamVideoDetails = null,
-                    firstStreamAudioDetails = null
+                    isStreamsLoading = !cached.isComplete,
+                    streamCount = allStreams.size,
+                    firstStreamVideoDetails = firstSummary?.videoDetails,
+                    firstStreamAudioDetails = firstSummary?.audioDetails
                 )
+            }
+            if (cached.isComplete) return
+        }
+
+        streamsPrefetchJob = viewModelScope.launch {
+            if (cached == null) {
+                _uiState.update {
+                    it.copy(
+                        isStreamsLoading = true,
+                        streamCount = 0,
+                        firstStreamVideoDetails = null,
+                        firstStreamAudioDetails = null
+                    )
+                }
             }
 
             val installedAddonOrder = runCatching {
                 addonRepository.getInstalledAddons().first().enabledAddons().map { it.displayName }
             }.getOrDefault(emptyList())
 
-            val streamType = meta.apiType.ifBlank { "movie" }
             streamRepository.getStreamsFromAllAddons(
                 type = streamType,
-                videoId = meta.id
+                videoId = videoId,
+                season = season,
+                episode = episode
             ).collect { result ->
                 when (result) {
                     is NetworkResult.Loading -> {
@@ -899,6 +967,7 @@ class MetaDetailsViewModel @Inject constructor(
                             result.data,
                             installedAddonOrder
                         )
+                        sessionAddonStreamsCache.put(cacheKey, ordered, isComplete = false)
                         val allStreams = ordered.flatMap { it.streams }
                         val firstSummary = allStreams.firstOrNull()?.let {
                             StreamAvSummaryBuilder.from(it)
@@ -913,12 +982,12 @@ class MetaDetailsViewModel @Inject constructor(
                         }
                     }
                     is NetworkResult.Error -> {
-                        // Keep any streams already received; mark loading finished.
+                        sessionAddonStreamsCache.markComplete(cacheKey)
                         _uiState.update { it.copy(isStreamsLoading = false) }
                     }
                 }
             }
-            // Flow completed — all addons responded
+            sessionAddonStreamsCache.markComplete(cacheKey)
             _uiState.update { it.copy(isStreamsLoading = false) }
         }
     }

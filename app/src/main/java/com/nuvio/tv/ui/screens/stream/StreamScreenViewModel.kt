@@ -17,6 +17,7 @@ import com.nuvio.tv.core.torrent.TorrentService
 import com.nuvio.tv.core.torrent.TorrentState
 import com.nuvio.tv.core.player.StreamAutoPlayPolicy
 import com.nuvio.tv.core.player.StreamAutoPlaySelector
+import com.nuvio.tv.core.streams.SessionAddonStreamsCache
 import com.nuvio.tv.core.tracking.TrackingMediaKind
 import com.nuvio.tv.core.tracking.TrackingMediaReference
 import com.nuvio.tv.core.tracking.TrackingScrobbleAction
@@ -77,6 +78,7 @@ class StreamScreenViewModel @Inject constructor(
     private val streamBadgePresentation: StreamBadgePresentation,
     streamBadgeSettingsDataStore: StreamBadgeSettingsDataStore,
     private val bingeGroupCacheDataStore: BingeGroupCacheDataStore,
+    private val sessionAddonStreamsCache: SessionAddonStreamsCache,
     private val torrentSettings: TorrentSettings,
     private val watchProgressRepository: WatchProgressRepository,
     private val trackingScrobbleCoordinator: TrackingScrobbleCoordinator,
@@ -539,6 +541,11 @@ class StreamScreenViewModel @Inject constructor(
                         }
                     )
                 }
+                sessionAddonStreamsCache.put(
+                    key = streamCacheKey,
+                    groups = mergedAddonStreams,
+                    isComplete = isAllLoaded
+                )
                 scheduleStreamBadgePresentation(mergedAddonStreams)
             }
 
@@ -564,14 +571,27 @@ class StreamScreenViewModel @Inject constructor(
                 }
             }
 
-            // Grab and clear the baseline snapshot.  When non-null we are
-            // resuming after a cancel and should merge incoming repository
-            // emissions with these previously-fetched results.
-            val baseline = resumeBaselineStreams
+            // Prefer a cancelled-load baseline; otherwise seed from the session
+            // cache populated by Meta Details prefetch (or a prior StreamScreen).
+            val resumeBaseline = resumeBaselineStreams
             resumeBaselineStreams = null
+            val sessionCached = sessionAddonStreamsCache.get(streamCacheKey)
+            val baseline = resumeBaseline
+                ?: sessionCached?.groups?.takeIf { it.isNotEmpty() }
 
-            // If resuming, seed the UI with the baseline immediately so
-            // the user sees their previous results right away.
+            // Complete session cache hit — show immediately and skip network.
+            if (resumeBaseline == null &&
+                sessionCached?.isComplete == true &&
+                sessionCached.groups.isNotEmpty()
+            ) {
+                Log.d(TAG, "Using session-cached streams for $streamCacheKey (${sessionCached.groups.sumOf { it.streams.size }} streams)")
+                applySuccess(sessionCached.groups, isAllLoaded = true)
+                updateSourceChipsForFetchStart(installedAddons, directDebridSourceNames, sessionCached.groups)
+                streamLoadCompleted = true
+                return@launch
+            }
+
+            // If resuming / seeding from cache, show results immediately.
             if (baseline != null) {
                 applySuccess(baseline, isAllLoaded = false)
             }

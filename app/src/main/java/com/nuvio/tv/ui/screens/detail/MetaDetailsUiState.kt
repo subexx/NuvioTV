@@ -82,7 +82,7 @@ data class MetaDetailsUiState(
     val selectedComment: TraktCommentReview? = null,
     val userMessage: String? = null,
     val userMessageIsError: Boolean = false,
-    /** Background stream prefetch for movies — count updates live as addons respond. */
+    /** Background stream prefetch — count updates live as addons respond; results live in SessionAddonStreamsCache. */
     val isStreamsLoading: Boolean = false,
     val streamCount: Int = 0,
     val firstStreamVideoDetails: String? = null,
