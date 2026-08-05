@@ -642,7 +642,9 @@ class MetaDetailsViewModel @Inject constructor(
                     isStreamsLoading = false,
                     streamCount = 0,
                     firstStreamVideoDetails = null,
-                    firstStreamAudioDetails = null
+                    firstStreamAudioDetails = null,
+                    firstStreamAudioLanguageDetails = null,
+                    firstStreamSubtitleLanguageDetails = null
                 )
             }
 
@@ -905,7 +907,9 @@ class MetaDetailsViewModel @Inject constructor(
                     isStreamsLoading = false,
                     streamCount = 0,
                     firstStreamVideoDetails = null,
-                    firstStreamAudioDetails = null
+                    firstStreamAudioDetails = null,
+                    firstStreamAudioLanguageDetails = null,
+                    firstStreamSubtitleLanguageDetails = null
                 )
             }
             return
@@ -930,7 +934,9 @@ class MetaDetailsViewModel @Inject constructor(
                     isStreamsLoading = !cached.isComplete,
                     streamCount = allStreams.size,
                     firstStreamVideoDetails = firstSummary?.videoDetails,
-                    firstStreamAudioDetails = firstSummary?.audioDetails
+                    firstStreamAudioDetails = firstSummary?.audioDetails,
+                    firstStreamAudioLanguageDetails = firstSummary?.audioLanguageDetails,
+                    firstStreamSubtitleLanguageDetails = firstSummary?.subtitleLanguageDetails
                 )
             }
             if (cached.isComplete) return
@@ -943,7 +949,9 @@ class MetaDetailsViewModel @Inject constructor(
                         isStreamsLoading = true,
                         streamCount = 0,
                         firstStreamVideoDetails = null,
-                        firstStreamAudioDetails = null
+                        firstStreamAudioDetails = null,
+                        firstStreamAudioLanguageDetails = null,
+                        firstStreamSubtitleLanguageDetails = null
                     )
                 }
             }
@@ -977,7 +985,9 @@ class MetaDetailsViewModel @Inject constructor(
                                 isStreamsLoading = true,
                                 streamCount = allStreams.size,
                                 firstStreamVideoDetails = firstSummary?.videoDetails,
-                                firstStreamAudioDetails = firstSummary?.audioDetails
+                                firstStreamAudioDetails = firstSummary?.audioDetails,
+                                firstStreamAudioLanguageDetails = firstSummary?.audioLanguageDetails,
+                                firstStreamSubtitleLanguageDetails = firstSummary?.subtitleLanguageDetails
                             )
                         }
                     }

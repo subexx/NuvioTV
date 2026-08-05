@@ -24,7 +24,9 @@ data class Stream(
     val qualityValue: Int = -1,
     val clientResolve: StreamClientResolve? = null,
     val debridCacheStatus: StreamDebridCacheStatus? = null,
-    val badges: List<StreamBadge> = emptyList()
+    val badges: List<StreamBadge> = emptyList(),
+    /** Language codes from stream-level subtitle tracks (Stremio stream.subtitles), when provided. */
+    val subtitleLanguages: List<String> = emptyList()
 ) {
     /**
      * Returns the primary stream source URL

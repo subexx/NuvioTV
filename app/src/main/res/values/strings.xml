@@ -172,6 +172,8 @@
     <string name="hero_sources_count">Sources (%1$d)</string>
     <string name="hero_stream_video">Video</string>
     <string name="hero_stream_audio">Audio</string>
+    <string name="hero_stream_audio_language">Audio language</string>
+    <string name="hero_stream_subtitles">Subtitles</string>
     <string name="hero_add_to_library">Add to library</string>
     <string name="hero_remove_from_library">Remove from library</string>
     <string name="hero_mark_watched">Mark as watched</string>

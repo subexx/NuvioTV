@@ -507,6 +507,8 @@ fun MetaDetailsScreen(
                     streamCount = uiState.streamCount,
                     firstStreamVideoDetails = uiState.firstStreamVideoDetails,
                     firstStreamAudioDetails = uiState.firstStreamAudioDetails,
+                    firstStreamAudioLanguageDetails = uiState.firstStreamAudioLanguageDetails,
+                    firstStreamSubtitleLanguageDetails = uiState.firstStreamSubtitleLanguageDetails,
                     onSeasonSelected = { viewModel.onEvent(MetaDetailsEvent.OnSeasonSelected(it)) },
                     onEpisodeClick = { video ->
                         onPlayClick(
@@ -883,6 +885,8 @@ private fun MetaDetailsContent(
     streamCount: Int = 0,
     firstStreamVideoDetails: String? = null,
     firstStreamAudioDetails: String? = null,
+    firstStreamAudioLanguageDetails: String? = null,
+    firstStreamSubtitleLanguageDetails: String? = null,
     onSeasonSelected: (Int) -> Unit,
     onEpisodeClick: (Video) -> Unit,
     onEpisodeManualPlayClick: (Video) -> Unit,
@@ -1666,6 +1670,8 @@ private fun MetaDetailsContent(
                         streamCount = streamCount,
                         firstStreamVideoDetails = firstStreamVideoDetails,
                         firstStreamAudioDetails = firstStreamAudioDetails,
+                        firstStreamAudioLanguageDetails = firstStreamAudioLanguageDetails,
+                        firstStreamSubtitleLanguageDetails = firstStreamSubtitleLanguageDetails,
                         isInLibrary = isInLibrary,
                         onToggleLibrary = onToggleLibrary,
                         onLibraryLongPress = onLibraryLongPress,

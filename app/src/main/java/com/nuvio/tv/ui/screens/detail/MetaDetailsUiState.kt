@@ -86,7 +86,9 @@ data class MetaDetailsUiState(
     val isStreamsLoading: Boolean = false,
     val streamCount: Int = 0,
     val firstStreamVideoDetails: String? = null,
-    val firstStreamAudioDetails: String? = null
+    val firstStreamAudioDetails: String? = null,
+    val firstStreamAudioLanguageDetails: String? = null,
+    val firstStreamSubtitleLanguageDetails: String? = null
 )
 
 sealed class MetaDetailsEvent {

@@ -28,7 +28,10 @@ fun StreamDto.toDomain(addonName: String, addonLogo: String?): Stream = Stream(
     addonName = addonName,
     addonLogo = addonLogo,
     sources = sources,
-    clientResolve = clientResolve?.toDomain()
+    clientResolve = clientResolve?.toDomain(),
+    subtitleLanguages = subtitles.orEmpty()
+        .mapNotNull { it.lang.takeIf { lang -> lang.isNotBlank() } }
+        .distinct()
 )
 
 fun StreamClientResolveDto.toDomain(): StreamClientResolve = StreamClientResolve(

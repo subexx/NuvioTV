@@ -96,6 +96,8 @@ fun HeroContentSection(
     streamCount: Int = 0,
     firstStreamVideoDetails: String? = null,
     firstStreamAudioDetails: String? = null,
+    firstStreamAudioLanguageDetails: String? = null,
+    firstStreamSubtitleLanguageDetails: String? = null,
     isInLibrary: Boolean,
     onToggleLibrary: () -> Unit,
     onLibraryLongPress: () -> Unit,
@@ -415,11 +417,16 @@ fun HeroContentSection(
                     }
 
                     if (showSourcesButton &&
-                        (!firstStreamVideoDetails.isNullOrBlank() || !firstStreamAudioDetails.isNullOrBlank())
+                        (!firstStreamVideoDetails.isNullOrBlank() ||
+                            !firstStreamAudioDetails.isNullOrBlank() ||
+                            !firstStreamAudioLanguageDetails.isNullOrBlank() ||
+                            !firstStreamSubtitleLanguageDetails.isNullOrBlank())
                     ) {
                         FirstStreamAvDetails(
                             videoDetails = firstStreamVideoDetails,
-                            audioDetails = firstStreamAudioDetails
+                            audioDetails = firstStreamAudioDetails,
+                            audioLanguageDetails = firstStreamAudioLanguageDetails,
+                            subtitleLanguageDetails = firstStreamSubtitleLanguageDetails
                         )
                         Spacer(modifier = Modifier.height(NuvioTheme.spacing.md))
                     }
@@ -587,49 +594,56 @@ private fun SourcesButton(
 @Composable
 private fun FirstStreamAvDetails(
     videoDetails: String?,
-    audioDetails: String?
+    audioDetails: String?,
+    audioLanguageDetails: String? = null,
+    subtitleLanguageDetails: String? = null
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(0.6f),
         verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.xs)
     ) {
-        videoDetails?.takeIf { it.isNotBlank() }?.let { details ->
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = stringResource(R.string.hero_stream_video),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = NuvioTheme.extendedColors.textTertiary
-                )
-                Text(
-                    text = details,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = NuvioTheme.extendedColors.textSecondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-        audioDetails?.takeIf { it.isNotBlank() }?.let { details ->
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = stringResource(R.string.hero_stream_audio),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = NuvioTheme.extendedColors.textTertiary
-                )
-                Text(
-                    text = details,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = NuvioTheme.extendedColors.textSecondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
+        StreamDetailRow(
+            label = stringResource(R.string.hero_stream_video),
+            details = videoDetails
+        )
+        StreamDetailRow(
+            label = stringResource(R.string.hero_stream_audio),
+            details = audioDetails
+        )
+        StreamDetailRow(
+            label = stringResource(R.string.hero_stream_audio_language),
+            details = audioLanguageDetails
+        )
+        StreamDetailRow(
+            label = stringResource(R.string.hero_stream_subtitles),
+            details = subtitleLanguageDetails
+        )
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun StreamDetailRow(
+    label: String,
+    details: String?
+) {
+    details?.takeIf { it.isNotBlank() }?.let { value ->
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = NuvioTheme.extendedColors.textTertiary
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.labelMedium,
+                color = NuvioTheme.extendedColors.textSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
