@@ -238,7 +238,7 @@ fun HeroContentSection(
                 exit = fadeOut(tween(NuvioMotion.tokens.durations.overlay))
             ) {
                 Column {
-                    val showStreamsButton = onStreamsClick != null
+                    val showSourcesButton = onStreamsClick != null
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md),
                         verticalAlignment = Alignment.CenterVertically
@@ -260,9 +260,9 @@ fun HeroContentSection(
                             }
                         )
 
-                        if (showStreamsButton) {
-                            StreamsButton(
-                                streamCount = streamCount,
+                        if (showSourcesButton) {
+                            SourcesButton(
+                                sourceCount = streamCount,
                                 onClick = onStreamsClick!!,
                                 onFocused = onHeroActionFocused
                             )
@@ -414,7 +414,7 @@ fun HeroContentSection(
                         }
                     }
 
-                    if (showStreamsButton &&
+                    if (showSourcesButton &&
                         (!firstStreamVideoDetails.isNullOrBlank() || !firstStreamAudioDetails.isNullOrBlank())
                     ) {
                         FirstStreamAvDetails(
@@ -541,15 +541,15 @@ private fun PlayButton(
 
 @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
-private fun StreamsButton(
-    streamCount: Int,
+private fun SourcesButton(
+    sourceCount: Int,
     onClick: () -> Unit,
     onFocused: () -> Unit = {}
 ) {
-    val label = if (streamCount > 0) {
-        stringResource(R.string.hero_streams_count, streamCount)
+    val label = if (sourceCount > 0) {
+        stringResource(R.string.hero_sources_count, sourceCount)
     } else {
-        stringResource(R.string.hero_streams)
+        stringResource(R.string.hero_sources)
     }
 
     Button(

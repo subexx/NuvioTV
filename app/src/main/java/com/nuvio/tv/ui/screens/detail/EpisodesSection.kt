@@ -443,7 +443,6 @@ fun EpisodesRow(
                 onEpisodeManualPlayClick(selectedEpisode)
                 optionsEpisode = null
             },
-            showPlayManually = showManualPlayOption,
             onToggleWatched = {
                 onToggleEpisodeWatched(selectedEpisode)
                 optionsEpisode = null
@@ -943,7 +942,6 @@ private fun EpisodeOptionsDialog(
     onOpenEpisodeComments: () -> Unit = {},
     showOpenEpisodeComments: Boolean = false,
     onPlayManually: () -> Unit = {},
-    showPlayManually: Boolean = false,
     onToggleWatched: () -> Unit,
     onMarkSeasonWatched: () -> Unit = {},
     onMarkSeasonUnwatched: () -> Unit = {},
@@ -1010,6 +1008,17 @@ private fun EpisodeOptionsDialog(
             Text(stringResource(R.string.episodes_play))
         }
 
+        Button(
+            onClick = onPlayManually,
+            colors = ButtonDefaults.colors(
+                containerColor = NuvioTheme.colors.BackgroundCard,
+                contentColor = NuvioTheme.colors.TextPrimary
+            ),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(stringResource(R.string.hero_sources))
+        }
+
         if (showOpenEpisodeComments) {
             Button(
                 onClick = onOpenEpisodeComments,
@@ -1020,19 +1029,6 @@ private fun EpisodeOptionsDialog(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(stringResource(R.string.episodes_open_comments))
-            }
-        }
-
-        if (showPlayManually) {
-            Button(
-                onClick = onPlayManually,
-                colors = ButtonDefaults.colors(
-                    containerColor = NuvioTheme.colors.BackgroundCard,
-                    contentColor = NuvioTheme.colors.TextPrimary
-                ),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(stringResource(R.string.play_manually))
             }
         }
 
