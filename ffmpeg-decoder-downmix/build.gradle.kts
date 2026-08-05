@@ -18,6 +18,8 @@ fun localPath(name: String): String? {
 
 val ffmpegSourceDir = localPath("FFMPEG_SOURCE_DIR")
 val ffmpegBuildDir = localPath("FFMPEG_BUILD_DIR")
+val useLocalFfmpegDecoder = localPath("USE_LOCAL_FFMPEG_DECODER")?.toBoolean() ?: false
+val canBuildFfmpeg = useLocalFfmpegDecoder && !ffmpegSourceDir.isNullOrBlank() && !ffmpegBuildDir.isNullOrBlank()
 
 android {
     namespace = "androidx.media3.decoder.ffmpeg"
@@ -27,9 +29,9 @@ android {
     defaultConfig {
         minSdk = 24
 
-        externalNativeBuild {
-            cmake {
-                if (!ffmpegSourceDir.isNullOrBlank() && !ffmpegBuildDir.isNullOrBlank()) {
+        if (canBuildFfmpeg) {
+            externalNativeBuild {
+                cmake {
                     arguments += listOf(
                         "-DFFMPEG_SOURCE_DIR=$ffmpegSourceDir",
                         "-DFFMPEG_BUILD_DIR=$ffmpegBuildDir"
@@ -48,10 +50,12 @@ android {
         buildConfig = false
     }
 
-    externalNativeBuild {
-        cmake {
-            path = file("src/main/jni/CMakeLists.txt")
-            version = "3.22.1"
+    if (canBuildFfmpeg) {
+        externalNativeBuild {
+            cmake {
+                path = file("src/main/jni/CMakeLists.txt")
+                version = "3.22.1"
+            }
         }
     }
 }

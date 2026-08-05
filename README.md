@@ -62,7 +62,7 @@ cd NuvioTV
 ./gradlew :app:assembleFullDebug
 
 # Run on connected device
-adb shell am start -n com.nuviodebug.com/com.nuvio.tv.MainActivity
+adb shell am start -n com.nuvio.tv.debug/com.nuvio.tv.MainActivity
 ```
 
 ## Legal & DMCA
