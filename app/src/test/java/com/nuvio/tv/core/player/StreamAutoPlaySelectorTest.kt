@@ -297,6 +297,71 @@ class StreamAutoPlaySelectorTest {
         assertNull(next)
     }
 
+    @Test
+    fun `failover selectNext skips by identity keys when resolved url differs`() {
+        val first = stream(addonName = "A", url = "https://addon.example/magnet-a", name = "1", infoHash = "aaa")
+        val second = stream(addonName = "A", url = "https://addon.example/magnet-b", name = "2", infoHash = "bbb")
+        val third = stream(addonName = "B", url = "https://addon.example/magnet-c", name = "3", infoHash = "ccc")
+
+        val exclude = StreamAutoPlaySelector.streamIdentityKeys(first) + "u:https://cdn.example/resolved-a.mkv"
+
+        val next = StreamAutoPlaySelector.selectNextPlayableStream(
+            streams = listOf(first, second, third),
+            current = first,
+            currentUrl = "https://cdn.example/resolved-a.mkv",
+            excludeKeys = exclude,
+            forFailover = true
+        )
+
+        assertEquals(second, next)
+    }
+
+    @Test
+    fun `failover selectNext allows checking cache state`() {
+        val checking = stream(
+            addonName = "A",
+            name = "Checking",
+            infoHash = "abc123",
+            cacheState = StreamDebridCacheState.CHECKING
+        )
+        val cached = stream(
+            addonName = "A",
+            name = "Cached",
+            infoHash = "ghi789",
+            cacheState = StreamDebridCacheState.CACHED
+        )
+
+        val next = StreamAutoPlaySelector.selectNextPlayableStream(
+            streams = listOf(checking, cached),
+            current = checking,
+            excludeKeys = StreamAutoPlaySelector.streamIdentityKeys(checking),
+            forFailover = true
+        )
+
+        assertEquals(cached, next)
+    }
+
+    @Test
+    fun `failover selectNext skips not cached`() {
+        val first = stream(addonName = "A", url = "https://example.com/1.m3u8", name = "1")
+        val notCached = stream(
+            addonName = "A",
+            name = "Not cached",
+            infoHash = "def456",
+            cacheState = StreamDebridCacheState.NOT_CACHED
+        )
+        val third = stream(addonName = "B", url = "https://example.com/3.m3u8", name = "3")
+
+        val next = StreamAutoPlaySelector.selectNextPlayableStream(
+            streams = listOf(first, notCached, third),
+            current = first,
+            excludeKeys = StreamAutoPlaySelector.streamIdentityKeys(first),
+            forFailover = true
+        )
+
+        assertEquals(third, next)
+    }
+
     private fun stream(
         addonName: String,
         url: String? = null,

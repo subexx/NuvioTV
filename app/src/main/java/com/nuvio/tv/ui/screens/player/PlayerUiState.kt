@@ -84,6 +84,8 @@ data class PlayerUiState(
     val playbackIssueReportsEnabled: Boolean = false,
     val showLoadingOverlay: Boolean = true,
     val loadingMessage: String? = null,
+    /** Always-visible failover progress, e.g. "Trying link 2 of 15". */
+    val streamFailoverStatus: String? = null,
     val loadingProgress: Float? = null,
     val loadingIssueReportVisible: Boolean = false,
     val loadingIssueElapsedMs: Long = 0L,

@@ -196,74 +196,159 @@ private const val MAX_STREAM_FAILOVER_ATTEMPTS = 25
 internal fun PlayerRuntimeController.tryNextStreamAfterPlaybackFailure(
     detailedError: String
 ): Boolean {
-    if (streamFailoverInProgress) return true
-
     hydrateSourceStreamsFromSessionCache()
     val candidates = _uiState.value.sourceAllStreams
     if (candidates.isEmpty()) {
         Log.d(PlayerRuntimeController.TAG, "Stream failover: no candidate list available")
+        finishStreamFailoverExhausted()
         return false
     }
 
-    // Mark the failing stream so we don't pick it again.
-    val failingKey = candidates.firstOrNull { stream ->
-        val url = stream.getStreamUrl()
-        url != null && (url == currentStreamUrl || stream.url == currentStreamUrl)
-    }?.stableKey()
-        ?: currentStreamUrl.takeIf { it.isNotBlank() }
-    if (failingKey != null) {
-        failedStreamFailoverKeys += failingKey
-    }
+    markStreamFailedForFailover(
+        stream = activeStreamFailoverCandidate,
+        url = currentStreamUrl.takeIf { it.isNotBlank() }
+    )
 
     if (streamFailoverAttempts >= MAX_STREAM_FAILOVER_ATTEMPTS) {
         Log.w(PlayerRuntimeController.TAG, "Stream failover: attempt limit reached")
+        finishStreamFailoverExhausted()
         return false
+    }
+
+    if (streamFailoverPlayableTotal <= 0) {
+        streamFailoverPlayableTotal = StreamAutoPlaySelector.countFailoverPlayableStreams(candidates)
     }
 
     val next = StreamAutoPlaySelector.selectNextPlayableStream(
         streams = candidates,
-        currentUrl = currentStreamUrl,
-        excludeKeys = failedStreamFailoverKeys
+        current = activeStreamFailoverCandidate,
+        currentUrl = currentStreamUrl.takeIf { it.isNotBlank() },
+        excludeKeys = failedStreamFailoverKeys,
+        forFailover = true
     )
     if (next == null) {
         Log.w(
             PlayerRuntimeController.TAG,
             "Stream failover: no remaining playable streams after error=$detailedError"
         )
+        finishStreamFailoverExhausted()
         return false
     }
 
     streamFailoverAttempts++
     streamFailoverInProgress = true
+    activeStreamFailoverCandidate = next
+
+    val failedPlayableCount = candidates.count { stream ->
+        StreamAutoPlaySelector.isFailoverPlayable(stream) &&
+            StreamAutoPlaySelector.isExcludedByKeys(stream, failedStreamFailoverKeys)
+    }
+    val linkNumber = (failedPlayableCount + 1).coerceAtMost(
+        streamFailoverPlayableTotal.coerceAtLeast(1)
+    )
+    val linkTotal = streamFailoverPlayableTotal.coerceAtLeast(linkNumber)
+    val status = context.getString(
+        com.nuvio.tv.R.string.player_trying_link_progress,
+        linkNumber,
+        linkTotal
+    )
+
     Log.w(
         PlayerRuntimeController.TAG,
-        "Stream failover ${streamFailoverAttempts}: trying next source " +
+        "Stream failover $linkNumber/$linkTotal: trying next source " +
             "'${next.getDisplayNameOrNull() ?: next.addonName}' after error=$detailedError"
     )
 
+    applyStreamFailoverStatus(status)
+
+    // switchToSourceStream releases/rebuilds the player; keep inProgress until
+    // first frame or the next real failure continues the chain.
+    switchToSourceStream(next)
+    // Overlay reset inside switch clears loadingMessage — re-apply failover text.
+    applyStreamFailoverStatus(status)
+    return true
+}
+
+internal fun PlayerRuntimeController.continueStreamFailoverAfterSwitchFailure(
+    reason: String
+): Boolean {
+    if (!streamFailoverInProgress) return false
+    scope.launch {
+        tryNextStreamAfterPlaybackFailure(reason)
+    }
+    return true
+}
+
+private fun PlayerRuntimeController.markStreamFailedForFailover(
+    stream: Stream?,
+    url: String?
+) {
+    stream?.let { failedStreamFailoverKeys += StreamAutoPlaySelector.streamIdentityKeys(it) }
+    activeStreamFailoverCandidate?.let {
+        failedStreamFailoverKeys += StreamAutoPlaySelector.streamIdentityKeys(it)
+    }
+    val candidates = _uiState.value.sourceAllStreams
+    val failingUrl = url?.takeIf { it.isNotBlank() }
+    if (failingUrl != null) {
+        failedStreamFailoverKeys += "u:$failingUrl"
+    }
+    val state = _uiState.value
+    val matched = candidates.firstOrNull { candidate ->
+        val candidateUrl = candidate.getStreamUrl()
+        (failingUrl != null && (candidateUrl == failingUrl || candidate.url == failingUrl)) ||
+            (
+                !state.currentStreamInfoHash.isNullOrBlank() &&
+                    candidate.getEffectiveInfoHash() == state.currentStreamInfoHash
+            ) ||
+            (
+                !state.currentStreamAddonName.isNullOrBlank() &&
+                    candidate.addonName == state.currentStreamAddonName &&
+                    (
+                        candidate.name == state.currentStreamName ||
+                            candidate.getDisplayNameOrNull() == state.currentStreamName ||
+                            candidate.addonName == state.currentStreamName
+                    )
+            )
+    }
+    matched?.let { failedStreamFailoverKeys += StreamAutoPlaySelector.streamIdentityKeys(it) }
+}
+
+private fun PlayerRuntimeController.applyStreamFailoverStatus(status: String) {
     _uiState.update {
         it.copy(
             error = null,
             showLoadingOverlay = true,
             isBuffering = true,
-            loadingMessage = context.getString(com.nuvio.tv.R.string.player_trying_next_source),
+            loadingMessage = status,
+            streamFailoverStatus = status,
             showPauseOverlay = false,
             playbackEnded = false,
-            postPlayMode = null
+            postPlayMode = null,
+            sourceStreamsError = null
         )
     }
+}
 
-    // switchToSourceStream releases/rebuilds the player asynchronously.
-    switchToSourceStream(next)
+private fun PlayerRuntimeController.finishStreamFailoverExhausted() {
     streamFailoverInProgress = false
-    return true
+    activeStreamFailoverCandidate = null
+    _uiState.update { it.copy(streamFailoverStatus = null) }
 }
 
 internal fun PlayerRuntimeController.resetStreamFailoverStateOnSuccess() {
-    if (failedStreamFailoverKeys.isEmpty() && streamFailoverAttempts == 0) return
+    if (failedStreamFailoverKeys.isEmpty() &&
+        streamFailoverAttempts == 0 &&
+        !streamFailoverInProgress &&
+        _uiState.value.streamFailoverStatus == null
+    ) {
+        return
+    }
     failedStreamFailoverKeys.clear()
     streamFailoverAttempts = 0
+    streamFailoverPlayableTotal = 0
     streamFailoverInProgress = false
+    activeStreamFailoverCandidate = null
+    _uiState.update { it.copy(streamFailoverStatus = null) }
 }
 
 internal fun PlayerRuntimeController.buildSourceRequestKey(type: String, videoId: String, season: Int?, episode: Int?): String {
@@ -838,6 +923,11 @@ internal fun PlayerRuntimeController.switchToSourceStream(
     sourceStreamsScope?.cancel()
     sourceStreamsScope = null
     sourceStreamsJob = null
+    // Track list-level identity for failover. Keep the pre-resolve candidate
+    // while a failover resolve rewrites the URL.
+    if (!streamFailoverInProgress || activeStreamFailoverCandidate == null) {
+        activeStreamFailoverCandidate = stream
+    }
     if (openExternalStreamInBrowser(stream = stream, fromEpisodePanel = false)) {
         return
     }
@@ -852,6 +942,8 @@ internal fun PlayerRuntimeController.switchToSourceStream(
                 switchToSourceStream(resolved)
             } else if (resolved != null) {
                 switchToTorrentSourceStream(resolved)
+            } else if (continueStreamFailoverAfterSwitchFailure("debrid resolve failed")) {
+                // Keep walking the source list.
             } else {
                 _uiState.update {
                     it.copy(
@@ -876,17 +968,21 @@ internal fun PlayerRuntimeController.switchToSourceStream(
                     switchToSourceStream(resolved)
                 } else {
                     debridResolveJob = null
-                    _uiState.update {
-                        it.copy(
-                            isLoadingSourceStreams = false,
-                            sourceStreamsError = context.getString(com.nuvio.tv.R.string.player_stream_error_invalid_url)
-                        )
+                    if (!continueStreamFailoverAfterSwitchFailure("direct debrid resolve failed")) {
+                        _uiState.update {
+                            it.copy(
+                                isLoadingSourceStreams = false,
+                                sourceStreamsError = context.getString(com.nuvio.tv.R.string.player_stream_error_invalid_url)
+                            )
+                        }
                     }
                 }
             }
             return
         }
-        _uiState.update { it.copy(sourceStreamsError = context.getString(com.nuvio.tv.R.string.player_stream_error_invalid_url)) }
+        if (!continueStreamFailoverAfterSwitchFailure("invalid stream url")) {
+            _uiState.update { it.copy(sourceStreamsError = context.getString(com.nuvio.tv.R.string.player_stream_error_invalid_url)) }
+        }
         return
     }
 

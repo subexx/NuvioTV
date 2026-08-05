@@ -1302,6 +1302,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                             it.copy(
                                 showLoadingOverlay = false,
                                 loadingMessage = null,
+                                streamFailoverStatus = null,
                                 loadingProgress = if (it.loadingProgress != null) 1f else null,
                                 loadingIssueReportVisible = false,
                                 loadingIssueElapsedMs = 0L,
@@ -1316,7 +1317,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                     }
 
                     override fun onPlayerError(error: PlaybackException) {
-                        if (isReleasingPlayer && error.errorCode == PlaybackException.ERROR_CODE_TIMEOUT) return
+                        if (isReleasingPlayer) return
                         cancelFirstFrameWatchdog()
                         val detailedError = error.toDisplayMessage(context)
                         cancelStableProgressReset()
@@ -1503,10 +1504,12 @@ internal fun PlayerRuntimeController.initializePlayer(
                         handleParsingErrorFallback(error)
 
                         // ── Main Engine Failover ──
-                        if (maybeAutoSwitchInternalPlayerOnStartupError(detailedError = detailedError, allowEngineFailover = allowEngineFailover)) {
+                        if (!streamFailoverInProgress &&
+                            maybeAutoSwitchInternalPlayerOnStartupError(detailedError = detailedError, allowEngineFailover = allowEngineFailover)
+                        ) {
                             return
                         }
-                        if (attemptAutoRetry(error, detailedError)) {
+                        if (!streamFailoverInProgress && attemptAutoRetry(error, detailedError)) {
                             return
                         }
 

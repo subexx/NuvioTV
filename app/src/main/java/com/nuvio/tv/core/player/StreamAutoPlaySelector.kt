@@ -43,18 +43,50 @@ object StreamAutoPlaySelector {
         return stream.getStreamUrl() != null || stream.isTorrent() || stream.isDirectDebrid()
     }
 
+    /**
+     * Looser playability for playback failover: still skip externals and known
+     * uncached debrid rows, but allow CHECKING/UNKNOWN so the chain can keep
+     * walking the list when cache probes are stale or incomplete.
+     */
+    fun isFailoverPlayable(stream: Stream): Boolean {
+        if (stream.isExternal()) return false
+        if (stream.debridCacheStatus?.state == StreamDebridCacheState.NOT_CACHED) return false
+        return stream.getStreamUrl() != null || stream.isTorrent() || stream.isDirectDebrid()
+    }
+
     fun isPlayableStream(stream: Stream): Boolean = isPlayable(stream)
+
+    /** Identity tokens used to exclude a stream across resolve URL changes. */
+    fun streamIdentityKeys(stream: Stream): Set<String> = buildSet {
+        add("sk:${stream.stableKey()}")
+        stream.getStreamUrl()?.takeIf { it.isNotBlank() }?.let { add("u:$it") }
+        stream.url?.takeIf { it.isNotBlank() }?.let { add("u:$it") }
+        stream.externalUrl?.takeIf { it.isNotBlank() }?.let { add("u:$it") }
+        stream.getEffectiveInfoHash()?.takeIf { it.isNotBlank() }?.let { add("h:$it") }
+    }
+
+    fun isExcludedByKeys(stream: Stream, excludeKeys: Set<String>): Boolean {
+        if (excludeKeys.isEmpty()) return false
+        return streamIdentityKeys(stream).any { it in excludeKeys }
+    }
+
+    fun countFailoverPlayableStreams(streams: List<Stream>): Int =
+        streams.count { isFailoverPlayable(it) }
 
     /**
      * Returns the next playable stream after [current], skipping [excludeKeys].
      * Matching uses URL / infoHash / stableKey so nav-launched playback can
      * locate itself in a session-cached list.
+     *
+     * When [forFailover] is true, uses [isFailoverPlayable] and treats any
+     * overlapping [streamIdentityKeys] as excluded (not only stableKey).
      */
     fun selectNextPlayableStream(
         streams: List<Stream>,
         current: Stream? = null,
         currentUrl: String? = null,
-        excludeKeys: Set<String> = emptySet()
+        excludeKeys: Set<String> = emptySet(),
+        forFailover: Boolean = false
     ): Stream? {
         if (streams.isEmpty()) return null
         fun keyOf(stream: Stream): String = stream.stableKey()
@@ -63,24 +95,31 @@ object StreamAutoPlaySelector {
             val url = currentUrl?.takeIf { it.isNotBlank() } ?: return false
             return stream.getStreamUrl() == url ||
                 stream.url == url ||
-                stream.externalUrl == url
+                stream.externalUrl == url ||
+                (forFailover && stream.getEffectiveInfoHash() != null &&
+                    current?.getEffectiveInfoHash() == stream.getEffectiveInfoHash())
         }
+        fun isCandidate(stream: Stream): Boolean =
+            if (forFailover) isFailoverPlayable(stream) else isPlayable(stream)
+        fun isExcluded(stream: Stream): Boolean =
+            if (forFailover) isExcludedByKeys(stream, excludeKeys)
+            else keyOf(stream) in excludeKeys
 
         val startIndex = streams.indexOfFirst { matchesCurrent(it) }.let { index ->
             if (index >= 0) index + 1 else 0
         }
         for (i in startIndex until streams.size) {
             val candidate = streams[i]
-            if (!isPlayable(candidate)) continue
-            if (keyOf(candidate) in excludeKeys) continue
+            if (!isCandidate(candidate)) continue
+            if (isExcluded(candidate)) continue
             if (matchesCurrent(candidate)) continue
             return candidate
         }
         // Wrap: try earlier streams that weren't the failing one.
         for (i in 0 until startIndex.coerceAtMost(streams.size)) {
             val candidate = streams[i]
-            if (!isPlayable(candidate)) continue
-            if (keyOf(candidate) in excludeKeys) continue
+            if (!isCandidate(candidate)) continue
+            if (isExcluded(candidate)) continue
             if (matchesCurrent(candidate)) continue
             return candidate
         }

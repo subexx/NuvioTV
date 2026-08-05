@@ -459,10 +459,13 @@ class PlayerRuntimeController(
     internal var errorRetryCount: Int = 0
     internal var consecutiveAutoPlayCount: Int = 0
     internal var errorRetryJob: Job? = null
-    /** Streams that failed during this playback session (stableKey), for next-link failover. */
+    /** Streams that failed during this playback session (identity keys), for next-link failover. */
     internal val failedStreamFailoverKeys: MutableSet<String> = linkedSetOf()
     internal var streamFailoverAttempts: Int = 0
+    internal var streamFailoverPlayableTotal: Int = 0
     internal var streamFailoverInProgress: Boolean = false
+    /** Candidate from the OSD/session list currently being tried (pre-resolve). */
+    internal var activeStreamFailoverCandidate: Stream? = null
     internal var stableProgressResetJob: Job? = null
     @Volatile internal var currentPlayerSettingsForReport: PlayerSettings = PlayerSettings()
 
