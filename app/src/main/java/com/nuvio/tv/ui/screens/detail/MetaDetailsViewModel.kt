@@ -5,6 +5,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.core.player.StreamAutoPlayPolicy
+import com.nuvio.tv.core.player.StreamAutoPlaySelector
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.core.tmdb.TmdbMetadataService
 import com.nuvio.tv.core.tmdb.TmdbService
@@ -31,8 +32,11 @@ import com.nuvio.tv.domain.model.TmdbSettings
 import com.nuvio.tv.domain.model.TraktCommentReview
 import com.nuvio.tv.domain.model.Video
 import com.nuvio.tv.domain.model.WatchProgress
+import com.nuvio.tv.domain.model.enabledAddons
+import com.nuvio.tv.domain.repository.AddonRepository
 import com.nuvio.tv.domain.repository.LibraryRepository
 import com.nuvio.tv.domain.repository.MetaRepository
+import com.nuvio.tv.domain.repository.StreamRepository
 import com.nuvio.tv.domain.repository.WatchProgressRepository
 import com.nuvio.tv.data.local.WatchedItemsPreferences
 import com.nuvio.tv.data.local.TrailerSettingsDataStore
@@ -75,6 +79,8 @@ private const val TAG = "MetaDetailsViewModel"
 class MetaDetailsViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val metaRepository: MetaRepository,
+    private val streamRepository: StreamRepository,
+    private val addonRepository: AddonRepository,
     private val tmdbSettingsDataStore: TmdbSettingsDataStore,
     private val tmdbService: TmdbService,
     private val tmdbMetadataService: TmdbMetadataService,
@@ -119,6 +125,7 @@ class MetaDetailsViewModel @Inject constructor(
     private var trailerFetchJob: Job? = null
     private var moreLikeThisJob: Job? = null
     private var collectionJob: Job? = null
+    private var streamsPrefetchJob: Job? = null
 
     val lastFocusedEpisodeIdBySeason = androidx.compose.runtime.mutableStateMapOf<Int, String>()
     private var episodeRatingsJob: Job? = null
@@ -621,7 +628,11 @@ class MetaDetailsViewModel @Inject constructor(
                     sharedTrailerUrl = null,
                     sharedTrailerAudioUrl = null,
                     sharedTrailerErrorMessage = null,
-                    selectedSharedTrailer = null
+                    selectedSharedTrailer = null,
+                    isStreamsLoading = false,
+                    streamCount = 0,
+                    firstStreamVideoDetails = null,
+                    firstStreamAudioDetails = null
                 )
             }
 
@@ -836,8 +847,79 @@ class MetaDetailsViewModel @Inject constructor(
         // Start fetching trailer after meta is loaded
         fetchTrailerUrl()
 
+        // Prefetch streams in the background for movies (live count on Streams button)
+        prefetchStreamsForMovie(meta)
+
         if (traktCommentsEnabled && traktAuthenticated && supportsComments(meta)) {
             loadComments(meta)
+        }
+    }
+
+    private fun prefetchStreamsForMovie(meta: Meta) {
+        streamsPrefetchJob?.cancel()
+        val isMovie = meta.apiType.equals("movie", ignoreCase = true) ||
+            meta.type == ContentType.MOVIE
+        if (!isMovie || meta.id.isBlank()) {
+            _uiState.update {
+                it.copy(
+                    isStreamsLoading = false,
+                    streamCount = 0,
+                    firstStreamVideoDetails = null,
+                    firstStreamAudioDetails = null
+                )
+            }
+            return
+        }
+
+        streamsPrefetchJob = viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isStreamsLoading = true,
+                    streamCount = 0,
+                    firstStreamVideoDetails = null,
+                    firstStreamAudioDetails = null
+                )
+            }
+
+            val installedAddonOrder = runCatching {
+                addonRepository.getInstalledAddons().first().enabledAddons().map { it.displayName }
+            }.getOrDefault(emptyList())
+
+            val streamType = meta.apiType.ifBlank { "movie" }
+            streamRepository.getStreamsFromAllAddons(
+                type = streamType,
+                videoId = meta.id
+            ).collect { result ->
+                when (result) {
+                    is NetworkResult.Loading -> {
+                        _uiState.update { it.copy(isStreamsLoading = true) }
+                    }
+                    is NetworkResult.Success -> {
+                        val ordered = StreamAutoPlaySelector.orderAddonStreams(
+                            result.data,
+                            installedAddonOrder
+                        )
+                        val allStreams = ordered.flatMap { it.streams }
+                        val firstSummary = allStreams.firstOrNull()?.let {
+                            StreamAvSummaryBuilder.from(it)
+                        }
+                        _uiState.update {
+                            it.copy(
+                                isStreamsLoading = true,
+                                streamCount = allStreams.size,
+                                firstStreamVideoDetails = firstSummary?.videoDetails,
+                                firstStreamAudioDetails = firstSummary?.audioDetails
+                            )
+                        }
+                    }
+                    is NetworkResult.Error -> {
+                        // Keep any streams already received; mark loading finished.
+                        _uiState.update { it.copy(isStreamsLoading = false) }
+                    }
+                }
+            }
+            // Flow completed — all addons responded
+            _uiState.update { it.copy(isStreamsLoading = false) }
         }
     }
 
@@ -2830,5 +2912,6 @@ class MetaDetailsViewModel @Inject constructor(
         idleTimerJob?.cancel()
         trailerFetchJob?.cancel()
         nextToWatchJob?.cancel()
+        streamsPrefetchJob?.cancel()
     }
 }

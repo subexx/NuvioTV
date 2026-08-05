@@ -81,7 +81,12 @@ data class MetaDetailsUiState(
     val commentsEpisodeTarget: Video? = null,
     val selectedComment: TraktCommentReview? = null,
     val userMessage: String? = null,
-    val userMessageIsError: Boolean = false
+    val userMessageIsError: Boolean = false,
+    /** Background stream prefetch for movies — count updates live as addons respond. */
+    val isStreamsLoading: Boolean = false,
+    val streamCount: Int = 0,
+    val firstStreamVideoDetails: String? = null,
+    val firstStreamAudioDetails: String? = null
 )
 
 sealed class MetaDetailsEvent {

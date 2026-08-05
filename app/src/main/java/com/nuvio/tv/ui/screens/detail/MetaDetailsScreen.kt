@@ -504,6 +504,9 @@ fun MetaDetailsScreen(
                     commentsMode = uiState.commentsMode,
                     commentsEpisodeTarget = uiState.commentsEpisodeTarget,
                     selectedComment = uiState.selectedComment,
+                    streamCount = uiState.streamCount,
+                    firstStreamVideoDetails = uiState.firstStreamVideoDetails,
+                    firstStreamAudioDetails = uiState.firstStreamAudioDetails,
                     onSeasonSelected = { viewModel.onEvent(MetaDetailsEvent.OnSeasonSelected(it)) },
                     onEpisodeClick = { video ->
                         onPlayClick(
@@ -877,6 +880,9 @@ private fun MetaDetailsContent(
     commentsMode: CommentsMode,
     commentsEpisodeTarget: Video?,
     selectedComment: TraktCommentReview?,
+    streamCount: Int = 0,
+    firstStreamVideoDetails: String? = null,
+    firstStreamAudioDetails: String? = null,
     onSeasonSelected: (Int) -> Unit,
     onEpisodeClick: (Video) -> Unit,
     onEpisodeManualPlayClick: (Video) -> Unit,
@@ -1656,6 +1662,10 @@ private fun MetaDetailsContent(
                         } else {
                             null
                         },
+                        onStreamsClick = heroPlayManualClick,
+                        streamCount = streamCount,
+                        firstStreamVideoDetails = firstStreamVideoDetails,
+                        firstStreamAudioDetails = firstStreamAudioDetails,
                         isInLibrary = isInLibrary,
                         onToggleLibrary = onToggleLibrary,
                         onLibraryLongPress = onLibraryLongPress,

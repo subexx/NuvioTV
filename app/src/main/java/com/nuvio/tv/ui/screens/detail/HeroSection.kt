@@ -92,6 +92,10 @@ fun HeroContentSection(
     nextToWatch: NextToWatch?,
     onPlayClick: () -> Unit,
     onPlayLongPress: (() -> Unit)? = null,
+    onStreamsClick: (() -> Unit)? = null,
+    streamCount: Int = 0,
+    firstStreamVideoDetails: String? = null,
+    firstStreamAudioDetails: String? = null,
     isInLibrary: Boolean,
     onToggleLibrary: () -> Unit,
     onLibraryLongPress: () -> Unit,
@@ -234,6 +238,8 @@ fun HeroContentSection(
                 exit = fadeOut(tween(NuvioMotion.tokens.durations.overlay))
             ) {
                 Column {
+                    val showStreamsButton = onStreamsClick != null &&
+                        (meta.apiType.equals("movie", ignoreCase = true) || meta.type == ContentType.MOVIE)
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md),
                         verticalAlignment = Alignment.CenterVertically
@@ -254,6 +260,14 @@ fun HeroContentSection(
                                 onPlayFocusRestored()
                             }
                         )
+
+                        if (showStreamsButton) {
+                            StreamsButton(
+                                streamCount = streamCount,
+                                onClick = onStreamsClick!!,
+                                onFocused = onHeroActionFocused
+                            )
+                        }
 
                         ActionIconButton(
                             icon = if (isInLibrary) Icons.Default.Check else null,
@@ -401,6 +415,16 @@ fun HeroContentSection(
                         }
                     }
 
+                    if (showStreamsButton &&
+                        (!firstStreamVideoDetails.isNullOrBlank() || !firstStreamAudioDetails.isNullOrBlank())
+                    ) {
+                        FirstStreamAvDetails(
+                            videoDetails = firstStreamVideoDetails,
+                            audioDetails = firstStreamAudioDetails
+                        )
+                        Spacer(modifier = Modifier.height(NuvioTheme.spacing.md))
+                    }
+
                     MetaInfoRow(
                         meta = meta,
                         hideImdbRating = hideMetaInfoImdb,
@@ -512,6 +536,101 @@ private fun PlayButton(
                 text = text,
                 style = MaterialTheme.typography.labelLarge
             )
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalComposeUiApi::class)
+@Composable
+private fun StreamsButton(
+    streamCount: Int,
+    onClick: () -> Unit,
+    onFocused: () -> Unit = {}
+) {
+    val label = if (streamCount > 0) {
+        stringResource(R.string.hero_streams_count, streamCount)
+    } else {
+        stringResource(R.string.hero_streams)
+    }
+
+    Button(
+        onClick = onClick,
+        modifier = Modifier
+            .onFocusChanged { state ->
+                if (state.isFocused) onFocused()
+            }
+            .focusProperties { up = FocusRequester.Cancel },
+        colors = ButtonDefaults.colors(
+            containerColor = NuvioTheme.colors.BackgroundCard,
+            focusedContainerColor = NuvioTheme.colors.Secondary,
+            contentColor = NuvioTheme.colors.TextPrimary,
+            focusedContentColor = NuvioTheme.colors.OnSecondary
+        ),
+        shape = ButtonDefaults.shape(
+            shape = RoundedCornerShape(NuvioTheme.spacing.xxl)
+        ),
+        border = ButtonDefaults.border(
+            focusedBorder = Border(
+                border = BorderStroke(NuvioTheme.spacing.xxs, NuvioTheme.colors.FocusRing),
+                shape = RoundedCornerShape(NuvioTheme.spacing.xxl)
+            )
+        ),
+        contentPadding = PaddingValues(horizontal = NuvioTheme.spacing.xl, vertical = 14.dp)
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge
+        )
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun FirstStreamAvDetails(
+    videoDetails: String?,
+    audioDetails: String?
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(0.6f),
+        verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.xs)
+    ) {
+        videoDetails?.takeIf { it.isNotBlank() }?.let { details ->
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = stringResource(R.string.hero_stream_video),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = NuvioTheme.extendedColors.textTertiary
+                )
+                Text(
+                    text = details,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = NuvioTheme.extendedColors.textSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+        audioDetails?.takeIf { it.isNotBlank() }?.let { details ->
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = stringResource(R.string.hero_stream_audio),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = NuvioTheme.extendedColors.textTertiary
+                )
+                Text(
+                    text = details,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = NuvioTheme.extendedColors.textSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
     }
 }
