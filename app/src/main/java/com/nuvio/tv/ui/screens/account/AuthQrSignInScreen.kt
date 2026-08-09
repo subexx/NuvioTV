@@ -122,11 +122,12 @@ fun AuthQrSignInScreen(
         }
     }
 
-    LaunchedEffect(uiState.authState, isSignedIn, uiState.qrLoginCode, uiState.isLoading, uiState.error, exitRequested) {
+    LaunchedEffect(isSignedIn, uiState.qrLoginCode, uiState.isLoading, uiState.error, exitRequested) {
+        // TV login RPCs are anonymous — do not wait for AuthState to leave Loading.
+        // A stuck Loading session (e.g. transient refresh failure) previously blocked QR generation forever.
         if (
             !BuildConfig.SELF_HOSTED &&
             !exitRequested &&
-            uiState.authState !is AuthState.Loading &&
             !isSignedIn &&
             uiState.qrLoginCode.isNullOrBlank() &&
             uiState.error.isNullOrBlank() &&

@@ -165,7 +165,13 @@ class AuthManager @Inject constructor(
                                         finishStartupAuthDiagnostics("signed_out", "startup_refresh_token_invalid", AUTH_ENDPOINT_REFRESH, outcome.error?.authHttpStatus(), outcome.error)
                                     }
                                     SessionRefreshResult.TRANSIENT_FAILURE -> {
-                                        Log.w(TAG, "Session refresh failed transiently; keeping current auth state")
+                                        // Don't leave startup stuck on Loading — that blocks QR login.
+                                        if (_authState.value is AuthState.Loading) {
+                                            Log.w(TAG, "Session refresh failed transiently during startup; allowing SignedOut so QR login can proceed")
+                                            _authState.value = AuthState.SignedOut
+                                        } else {
+                                            Log.w(TAG, "Session refresh failed transiently; keeping current auth state")
+                                        }
                                         finishStartupAuthDiagnostics("failed", "startup_refresh_token_transient_failure", AUTH_ENDPOINT_REFRESH, outcome.error?.authHttpStatus(), outcome.error)
                                     }
                                 }
@@ -779,7 +785,9 @@ class AuthManager @Inject constructor(
             put("apikey", BuildConfig.SUPABASE_ANON_KEY)
             put("Content-Type", "application/json")
             put("Accept", "application/json")
-            if (!accessToken.isNullOrBlank()) put("Authorization", "Bearer $accessToken")
+            // PostgREST requires Authorization even for anon RPCs (QR TV login).
+            val bearer = accessToken?.takeIf { it.isNotBlank() } ?: BuildConfig.SUPABASE_ANON_KEY
+            put("Authorization", "Bearer $bearer")
         }
 }
 
